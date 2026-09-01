@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# Node / React
+node_modules/
+dist/
+
+# Docker & Banco
+*.sqlite3
+postgres_data/
+
+# Credenciais e Chaves de API
+*.json
+!manifest.json
