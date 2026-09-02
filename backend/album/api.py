@@ -1,12 +1,13 @@
 import random
-from ninja import NinjaAPI, Schema
 from typing import List
-from django.shortcuts import get_object_or_404
+from django.db import transaction
+from ninja import NinjaAPI, Schema
 from .models import Especie, FigurinhaCapturada
 
 api = NinjaAPI(title="Stickers Album API", version="1.0.0")
 
 
+# --- Schemas ---
 class EspecieSchema(Schema):
     id: int
     nome_popular: str
@@ -28,59 +29,82 @@ class CapturaResponse(Schema):
     ja_possui: bool
 
 
+# --- Funções Auxiliares ---
+def _popular_banco_se_vazio():
+    """Popula o banco com espécies iniciais caso ainda não existam registros."""
+    if not Especie.objects.exists():
+        Especie.objects.bulk_create(
+            [
+                Especie(
+                    nome_popular="Onça-Pintada",
+                    nome_cientifico="Panthera onca",
+                    dieta="Carnívoro",
+                    habitat="Pantanal",
+                    raridade="Lendário",
+                    pontos_xp=500,
+                ),
+                Especie(
+                    nome_popular="Mico-Leão-Dourado",
+                    nome_cientifico="Leontopithecus rosalia",
+                    dieta="Omnívoro",
+                    habitat="Mata Atlântica",
+                    raridade="Raro",
+                    pontos_xp=250,
+                ),
+                Especie(
+                    nome_popular="Capivara",
+                    nome_cientifico="Hydrochoerus hydrochaeris",
+                    dieta="Herbívoro",
+                    habitat="Rios e Lagos",
+                    raridade="Comum",
+                    pontos_xp=50,
+                ),
+                Especie(
+                    nome_popular="Arara-Juba",
+                    nome_cientifico="Guaruba guarouba",
+                    dieta="Frugívoro",
+                    habitat="Florestas Tropicais",
+                    raridade="Comum",
+                    pontos_xp=100,
+                ),
+            ]
+        )
+
+
+# --- Endpoints ---
 @api.get("/especies", response=List[EspecieSchema])
 def listar_especies(request):
-    return list(Especie.objects.all())
+    _popular_banco_se_vazio()
+    return Especie.objects.all()
 
 
 @api.post("/capturar", response=CapturaResponse)
+@transaction.atomic
 def capturar_animal(request, payload: CapturaInput):
-    especies = Especie.objects.all()
-    if not especies.exists():
-        # Popula o banco caso esteja vazio para testes
-        Especie.objects.create(
-            nome_popular="Onça-Pintada",
-            nome_cientifico="Panthera onca",
-            dieta="Carnívoro",
-            habitat="Pantanal",
-            raridade="lendario",
-            pontos_xp=500,
-        )
-        Especie.objects.create(
-            nome_popular="Mico-Leão-Dourado",
-            nome_cientifico="Leontopithecus rosalia",
-            dieta="Omnívoro",
-            habitat="Mata Atlântica",
-            raridade="raro",
-            pontos_xp=250,
-        )
-        Especie.objects.create(
-            nome_popular="Capivara",
-            nome_cientifico="Hydrochoerus hydrochaeris",
-            dieta="Herbívoro",
-            habitat="Rios e Lagos",
-            raridade="comum",
-            pontos_xp=50,
-        )
-        Especie.objects.create(
-            nome_popular="Arara-Juta",
-            nome_cientifico="Ara macao",
-            dieta="Frugívoro",
-            habitat="Florestas Tropicais",
-            raridade="comum",
-            pontos_xp=100,
-        )
-        especies = Especie.objects.all()
+    _popular_banco_se_vazio()
 
-    # Simulação da IA selecionando uma espécie aleatória do banco
-    especie_sorteada = random.choice(list(especies))
+    # Sorteia uma espécie cadastrada no banco
+    especie_ids = Especie.objects.values_list("id", flat=True)
+    especie_sorteada = Especie.objects.get(id=random.choice(list(especie_ids)))
 
-    # Verifica duplicidade no banco ou ajusta XP
-    ganho_xp = especie_sorteada.pontos_xp
+    # Lógica de duplicidade de captura
+    ja_possui = FigurinhaCapturada.objects.filter(especie=especie_sorteada).exists()
+
+    # Se for repetida, concede apenas 10% do XP
+    ganho_xp = (
+        int(especie_sorteada.pontos_xp * 0.1)
+        if ja_possui
+        else especie_sorteada.pontos_xp
+    )
+
+    # Persiste o registro de captura no banco
+    FigurinhaCapturada.objects.create(
+        especie=especie_sorteada, foto_base64=payload.foto_base64
+    )
 
     return {
         "sucesso": True,
         "especie": especie_sorteada,
         "ganho_xp": ganho_xp,
-        "ja_possui": False,
+        "ja_possui": ja_possui,
     }
