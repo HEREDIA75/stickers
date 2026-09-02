@@ -15,3 +15,4 @@ postgres_data/
 # Credenciais e Chaves de API
 *.json
 !manifest.json
+.venv/
